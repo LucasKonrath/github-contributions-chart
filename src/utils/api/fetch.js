@@ -10,27 +10,47 @@ const COLOR_MAP = {
 };
 
 async function fetchYears(username) {
-  const data = await fetch(`https://github.com/${username}?tab=contributions`, {
-    headers: {
-      "x-requested-with": "XMLHttpRequest"
-    }
-  });
-  const body = await data.text();
-  const $ = cheerio.load(body);
-  return $(".js-year-link.filter-item")
-    .get()
-    .map((a) => {
-      const $a = $(a);
-      const href = $a.attr("href");
-      const githubUrl = new URL(`https://github.com${href}`);
-      githubUrl.searchParams.set("tab", "contributions");
-      const formattedHref = `${githubUrl.pathname}${githubUrl.search}`;
-
-      return {
-        href: formattedHref,
-        text: $a.text().trim()
-      };
+  let attempts = 0;
+  let yearLinks = [];
+  let body = '';
+  while (attempts < 20) {
+    const data = await fetch(`https://github.com/${username}?tab=contributions`, {
+      headers: {
+        "x-requested-with": "XMLHttpRequest"
+      }
     });
+    body = await data.text();
+    const $ = cheerio.load(body);
+    yearLinks = $(".js-year-link.filter-item").get();
+    if (yearLinks.length > 0) break;
+    attempts++;
+    if (attempts < 20) {
+      await new Promise(res => setTimeout(res, 2000));
+    }
+  }
+  const $ = cheerio.load(body);
+  if (yearLinks.length === 0) {
+    // Fallback: always try to fetch the current year
+    const now = new Date();
+    const year = now.getFullYear().toString();
+    console.log(`No years found for ${username} after ${attempts} attempts. Using fallback year: ${year}`);
+    return [{
+      href: `/${username}?tab=contributions`,
+      text: year
+    }];
+  }
+  return yearLinks.map((a) => {
+    const $a = $(a);
+    const href = $a.attr("href");
+    const githubUrl = new URL(`https://github.com${href}`);
+    githubUrl.searchParams.set("tab", "contributions");
+    const formattedHref = `${githubUrl.pathname}${githubUrl.search}`;
+
+    return {
+      href: formattedHref,
+      text: $a.text().trim()
+    };
+  });
 }
 
 async function fetchDataForYear(url, year, format) {
@@ -39,10 +59,16 @@ async function fetchDataForYear(url, year, format) {
       "x-requested-with": "XMLHttpRequest"
     }
   });
-  const $ = cheerio.load(await data.text());
+  const body = await data.text();
+  const $ = cheerio.load(body);
   const $days = $(
     "table.ContributionCalendar-grid td.ContributionCalendar-day"
   );
+
+  if ($days.length === 0) {
+    console.log(`No contribution days found for ${url} (${year}). HTML snippet:`);
+    console.log(body.slice(0, 2000));
+  }
 
   const contribText = $(".js-yearly-contributions h2")
     .text()
@@ -71,7 +97,7 @@ async function fetchDataForYear(url, year, format) {
         const color = COLOR_MAP[$day.attr("data-level")];
         const value = {
           date: $day.attr("data-date"),
-          count: index === 0 ? contribCount : 0,
+          count: parseInt($day.attr("data-count") || "0", 10),
           color,
           intensity: $day.attr("data-level") || 0
         };

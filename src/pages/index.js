@@ -1,5 +1,5 @@
 import { TbBrandTwitter, TbShare, TbDownload, TbCopy } from "react-icons/tb";
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import {
   download,
   fetchData,
@@ -10,47 +10,71 @@ import {
 } from "../utils/export";
 import ThemeSelector from "../components/themes";
 
+const USERNAMES = [
+  'marcelobck',
+  'xmacedo',
+  'andeerlb',
+  'karane',
+  'Lee22br', // fixed casing
+  'vfurinii',
+  'joaoguilhermedesa',
+  'icarocaetano'
+];
+
 const App = () => {
-  const inputRef = useRef();
   const canvasRef = useRef();
   const contentRef = useRef();
+  // Use a map of refs for each username
+  const canvasRefs = useRef({});
+
+  // Create a stable ref callback for each username
+  const getCanvasRef = useCallback((username) => (el) => {
+    if (el) canvasRefs.current[username] = el;
+  }, []);
+
   const [loading, setLoading] = useState(false);
-  const [username, setUsername] = useState("");
   const [theme, setTheme] = useState("standard");
-  const [data, setData] = useState(null);
+  const [userData, setUserData] = useState([]);
   const [error, setError] = useState(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (!data) {
-      return;
-    }
-    draw();
-  }, [data, theme]);
+    setMounted(true);
+  }, []);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    setUsername(cleanUsername(username));
+  useEffect(() => {
     setLoading(true);
     setError(null);
-    setData(null);
-
-    fetchData(cleanUsername(username))
-      .then((data) => {
+    fetch('/api/v1/[username]')
+      .then((res) => res.json())
+      .then((results) => {
+        setUserData(results);
         setLoading(false);
-
-        if (data.years.length === 0) {
-          setError("Could not find your profile");
-        } else {
-          setData(data);
-        }
       })
       .catch((err) => {
-        console.log(err);
+        setError('Failed to fetch user data');
         setLoading(false);
-        setError("I could not check your profile successfully...");
       });
-  };
+  }, []);
+
+  // Draw charts after data is loaded
+  useEffect(() => {
+    if (!userData.length) return;
+    (async () => {
+      const { drawContributions } = await import('github-contributions-canvas');
+      userData.forEach(({ username, data }) => {
+        const canvas = canvasRefs.current[username];
+        if (canvas && data) {
+          drawContributions(canvas, {
+            data,
+            username,
+            themeName: theme,
+            footerText: 'Made by @sallar & friends - github-contributions.vercel.app'
+          });
+        }
+      });
+    })();
+  }, [userData, theme]);
 
   const onDownload = (e) => {
     e.preventDefault();
@@ -64,8 +88,8 @@ const App = () => {
 
   const onDownloadJson = (e) => {
     e.preventDefault();
-    if (data != null) {
-      downloadJSON(data);
+    if (userData != null) {
+      downloadJSON(userData);
     }
   };
 
@@ -74,23 +98,27 @@ const App = () => {
     share(canvasRef.current);
   };
 
-  const draw = async () => {
-    if (!canvasRef.current || !data) {
-      setError("Something went wrong... Check back later.");
-      return;
+  // Download all PNGs for all users with a delay between each
+  const onDownloadAll = async (e) => {
+    e.preventDefault();
+    for (const { username } of userData) {
+      const canvas = canvasRefs.current[username];
+      if (canvas) {
+        try {
+          const dataUrl = canvas.toDataURL();
+          const a = document.createElement('a');
+          document.body.appendChild(a);
+          a.download = `${username}-contributions.png`;
+          a.href = dataUrl;
+          a.click();
+          document.body.removeChild(a);
+        } catch (err) {
+          console.error(err);
+        }
+        // Wait 400ms before next download to allow browser to process
+        await new Promise(res => setTimeout(res, 400));
+      }
     }
-
-    const { drawContributions } = await import("github-contributions-canvas");
-
-    drawContributions(canvasRef.current, {
-      data,
-      username: username,
-      themeName: theme,
-      footerText: "Made by @sallar & friends - github-contributions.vercel.app"
-    });
-    contentRef.current.scrollIntoView({
-      behavior: "smooth"
-    });
   };
 
   const _renderGithubButton = () => {
@@ -121,71 +149,28 @@ const App = () => {
   };
 
   const _renderGraphs = () => {
+    if (loading) return _renderLoading();
+    if (error) return _renderError();
     return (
-      <div
-        className="App-result"
-        style={{ display: data !== null && !loading ? "block" : "none" }}
-      >
-        <p>Your chart is ready!</p>
-
-        {data !== null && (
-          <>
-            <div className="App-buttons">
-              <button
-                className="App-download-button"
-                onClick={onCopy}
-                type="button"
-              >
-                <TbCopy size={18} />
-                Copy
-              </button>
-              <button
-                className="App-download-button"
-                onClick={onDownload}
-                type="button"
-              >
-                <TbDownload size={18} />
-                Download
-              </button>
-              {global.navigator && "share" in navigator && (
-                <button
-                  className="App-download-button"
-                  onClick={onShare}
-                  type="button"
-                >
-                  <TbShare size={18} />
-                  Share
-                </button>
-              )}
-            </div>
-
-            <canvas ref={canvasRef} />
-          </>
-        )}
-      </div>
-    );
-  };
-
-  const _renderForm = () => {
-    return (
-      <form onSubmit={handleSubmit}>
-        <input
-          ref={inputRef}
-          placeholder="Your GitHub Username"
-          onChange={(e) => setUsername(e.target.value)}
-          value={username}
-          id="username"
-          autoCorrect="off"
-          autoCapitalize="none"
-          autoFocus
-        />
-        <button type="submit" disabled={username.length <= 0 || loading}>
-          <span role="img" aria-label="Stars">
-            ✨
-          </span>{" "}
-          {loading ? "Generating..." : "Generate!"}
+      <div className="App-result">
+        <p>Charts for 8 GitHub users:</p>
+        <button className="App-download-button" onClick={onDownloadAll} type="button" style={{marginBottom: 16}}>
+          <TbDownload size={18} /> Download All PNGs
         </button>
-      </form>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 32 }}>
+          {userData.map(({ username, data }) => (
+            <div key={username} style={{ flex: '1 1 300px', minWidth: 320 }}>
+              <h3>{username}</h3>
+              <canvas
+                ref={getCanvasRef(username)}
+                width={720}
+                height={180}
+                style={{ border: '1px solid #eee', background: '#fff' }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
     );
   };
 
@@ -198,7 +183,7 @@ const App = () => {
   };
 
   const _renderDownloadAsJSON = () => {
-    if (data === null) return;
+    if (userData === null) return;
     return (
       <a href="#" onClick={onDownloadJson}>
         <span role="img" aria-label="Bar Chart">
@@ -217,7 +202,6 @@ const App = () => {
           <h1>GitHub Contributions Chart Generator</h1>
           <h4>All your contributions in one image!</h4>
         </div>
-        {_renderForm()}
         <ThemeSelector
           currentTheme={theme}
           onChangeTheme={(themeName) => setTheme(themeName)}
@@ -231,7 +215,6 @@ const App = () => {
             </a>
             .
           </p>
-          {_renderDownloadAsJSON()}
           <div className="App-powered">
             <a
               href="https://vercel.com/?utm_source=github-contributions-chart&utm_campaign=oss"
@@ -243,9 +226,7 @@ const App = () => {
         </footer>
       </header>
       <section className="App-content" ref={contentRef}>
-        {loading && _renderLoading()}
-        {error !== null && _renderError()}
-        {_renderGraphs()}
+        {mounted ? _renderGraphs() : null}
       </section>
     </div>
   );
