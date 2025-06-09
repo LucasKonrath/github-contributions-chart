@@ -1,4 +1,15 @@
-# :octocat: GitHub Contribution Chart Generator [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/sallar/github-contributions-canvas/blob/master/LICENSE)
+# :octocat: GitHub Contribution Chart Generator (Fork)
+
+**This is a fork of the original [sallar/github-contributions-chart](https://github.com/sallar/github-contributions-chart) project.**
+
+The repository for this fork is: [LucasKonrath/github-contributions-chart](https://github.com/LucasKonrath/github-contributions-chart)
+
+I've updated this fork to fit my specific needs, including:
+- Always generating visualizations for a fixed list of users.
+- Improved reliability for scraping contribution data from GitHub.
+- Additional fixes and customizations for my workflow.
+
+---
 
 Generates an image of all your **GitHub** contributions since you have signed up, so you can use it in social media.
 
